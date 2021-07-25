@@ -42,8 +42,7 @@ test: $(PACKAGE)
 	go test
 
 website:
-	bash gen-nav.bash
-	bash mk-website.bash
+	./mk_website.py
 
 status:
 	git status
@@ -57,8 +56,7 @@ refresh:
 	git pull origin $(BRANCH)
 
 publish:
-	bash gen-nav.bash
-	bash mk-website.bash
+	./mk_website.py
 	bash publish.bash
 
 clean: 
