@@ -1,0 +1,109 @@
+#
+# Simple Makefile for Oberon-07 projects using the OBNC compiler.
+#
+PROJECT = PROJECT_NAME_GOES_HERE
+
+VERSION = $(shell jq .version codemeta.json | cut -d\"  -f 2)
+
+BRANCH = $(shell git branch | grep '* ' | cut -d\  -f 2)
+
+PREFIX = $(HOME)
+ifneq ($(prefix),)
+	PREFIX = $(prefix)
+endif
+
+OS = $(shell uname)
+MACHINE =
+ifeq ($(OS), Darwin)
+	MACHINE = $(shell machine)
+else
+	MACHINE = $(shell uname -m)
+endif
+
+PLATFORM = $(MACHINE)_$(OS)
+
+EXT = 
+ifeq ($(OS), Windows)
+	EXT = .exe
+endif
+
+#
+# NOTE: Orion depends on Artemis modules. Make sure they are in the import path
+#
+IMPORT_PATH = ../Artemis:$(OBNC_IMPORT_PATH)
+ifneq ($(import_path),)
+	IMPORT_PATH = "$(import_path):$(OBNC_IMPORT_PATH)"
+endif
+
+PROGRAMS = $(shell ls -1 *CmdLn.Mod | sed -E 's/CmdLn\.Mod//g')
+
+MODULE_TESTS = $(shell ls -1 *Test.Mod | sed -E 's/\.Mod//g')
+
+HTML_FILES = $(shell ls -1 *.html */*.html)
+
+DEF_FILES = $(shell ls -1 */*.def)
+
+build: $(PROGRAMS)
+
+$(PROGRAMS): $(MODULES)
+	@mkdir -p bin
+	env OBNC_IMPORT_PATH=$(IMPORT_PATH) obnc -o "bin/$@$(EXT)" "$@CmdLn.Mod"
+
+install: build .FORCE
+	@for FNAME in $(PROGRAMS); do cp -v bin/$$FNAME$(EXT) $(PREFIX)/bin/; done
+
+uninstall: .FORCE
+	@for FNAME in $(PROGRAMS); do if [ -f $(PREFIX)/bin/$$FNAME ]; then rm -v $(PREFIX)/bin/$$FNAME; fi; done
+
+obncdoc: .FORCE
+	obncdoc
+
+test: .FORCE
+	@for FNAME in $(MODULE_TESTS); do if [ -f "$${FNAME}.Mod" ]; then env OBNC_IMPORT_PATH=$(IMPORT_PATH) obnc -o "$${FNAME}$(EXT)" "$${FNAME}.Mod"; "./$${FNAME}"; fi; done
+
+clean: .FORCE
+	@if [ -d bin ]; then rm -fR bin; fi
+	@if [ -d .obnc ]; then rm -fR .obnc; fi
+	@if [ -d dist ]; then rm -fR dist; fi
+	@for FNAME in $(HTML_FILES); do rm -v "$${FNAME}"; done
+	@for FNAME in $(DEF_FILES); do rm -v "$${FNAME}"; done
+	@for FNAME in $(MODULE_TESTS); do if [ -f "$${FNAME}" ]; then rm -v "$${FNAME}$(EXT)"; fi; done
+
+distribute_docs: obncdoc
+	mkdir -p dist/$(PROJECT)-$(VERSION)
+	cp -v codemeta.json dist/$(PROJECT)-$(VERSION)/
+	cp -v CITATION.cff dist/$(PROJECT)-$(VERSION)/
+	cp -v README.md  dist/$(PROJECT)-$(VERSION)/
+	cp -v LICENSE    dist/$(PROJECT)-$(VERSION)/
+	cp -v INSTALL.md dist/$(PROJECT)-$(VERSION)/
+	cp -vR docs dist/$(PROJECT)-$(VERSION)/
+	cp -vR obncdoc dist/$(PROJECT)-$(VERSION)/
+
+dist/$(PLATFORM)-$(VERSION): distribute_docs
+	mkdir -p dist/$(PROJECT)-$(VERSION)
+	cp *.Mod dist/$(PROJECT)-$(VERSION)/
+	cp *.bash dist/$(PROJECT)-$(VERSION)/
+	cp -r obncdoc dist/$(PROJECT)-$(VERSION)/
+	cd dist && zip -r $(PROJECT)-$(VERSION).zip $(PROJECT)-$(VERSION)/* 
+
+release: clean build website dist/$(PLATFORM)-$(VERSION)
+
+status:
+	git status
+
+save:
+	if [ "$(msg)" != "" ]; then git commit -am "$(msg)"; else git commit -am "Quick Save"; fi
+	git push origin $(BRANCH)
+
+website: obncdoc .FORCE
+	pandoc -f markdown -t html nav.md >nav.tmpl
+	pandoc -f markdown -t html footer.md >footer.tmpl
+	pandoc -f markdown -t html footer.md >docs/footer.tmpl
+	pandoc -f markdown -t html docs/nav.md >docs/nav.tmpl
+	pandoc --metadata=title:"$(PROJECT): Home" -s --template page.tmpl -f markdown -t html README.md >index.html
+	pandoc --metadata=title:"$(PROJECT): License" -s --template page.tmpl -f markdown -t html LICENSE >license.html
+	pandoc --metadata=title:"$(PROJECT): Installation" -s --template page.tmpl -f markdown -t html INSTALL.md >install.html
+	cd docs && pandoc --metadata=title:"$(PROJECT): Documentation" -s --template page.tmpl -f markdown -t html index.md >index.html
+
+
+.FORCE:
